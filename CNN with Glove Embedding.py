@@ -40,7 +40,7 @@ from random import shuffle
 prepare_data = False
 construct_model = False
 train = True
-plot = True
+plot = False
 check_prediction = False
 
 MAX_SEQUENCE_LENGTH = 56
@@ -127,9 +127,14 @@ if prepare_data:
     texts_train = df_train['text'].tolist()
     tokenizer_train = Tokenizer(nb_words=MAX_NB_WORDS)
     tokenizer_train.fit_on_texts(texts_train)
+    ## this can also be viewed as "one-hot embedding", in the format of  list of list
+    ## each inner list represents a document(sentence)
+    ## for example, one document was converted into [2, 3525, 1312, 198, 108]
     sequences_train = tokenizer_train.texts_to_sequences(texts_train)
+    # hash words to their uniquely assigned integers.
     word_index_train = tokenizer_train.word_index
     print ('Found %s unique tokens for training set.' % len(word_index_train))
+    ## padding and produce an array of size (#ofDocuments, total#ofWords)
     x_train = pad_sequences(sequences_train, maxlen=MAX_SEQUENCE_LENGTH)
     
     labels_train = df_train['label'].tolist()
@@ -137,12 +142,11 @@ if prepare_data:
     
     
     texts_val = df_val['text'].tolist()
-    tokenizer_val = Tokenizer(nb_words=MAX_NB_WORDS)
-    tokenizer_val.fit_on_texts(texts_val)
-    sequences_val = tokenizer_val.texts_to_sequences(texts_val)
+    # convert texts to a sequence of words
+    sequences_val = tokenizer_train.texts_to_sequences(texts_val)
     
-    word_index_val = tokenizer_val.word_index
-    print ('Found %s unique tokens for validation set.' % len(word_index_val))
+    word_index_val = tokenizer_train.word_index
+    
     x_val = pad_sequences(sequences_val, maxlen=MAX_SEQUENCE_LENGTH)
     
     labels_val = df_val['label'].tolist()
@@ -170,8 +174,13 @@ if prepare_data:
         if embedding_vector is not None:
             # words not found in embedding index will be all-zeros.
             embedding_matrix[i] = embedding_vector
+            
+    # originally in train section, this should only be changed once in preparation
+    y_train = y_train[:,1]
+    y_val = y_val[:,1]
   
-if construct_model:      
+if construct_model:  
+    # some commets in the old file Learning Notes CNN with Rotten Tomatoes.py
     # load embedding matrix to an embedding layer
     # outputs a 3D tensor of shape (samples, sequence_length, embedding_dim)
     embedding_layer = Embedding(len(word_index_train) + 1,
@@ -239,12 +248,10 @@ if train:
     #   percentage of training data to be used for testing rather than training
     #history = model.fit(X_train, y_train, validation_split=0.2, epochs=3, batch_size=50)
     
-    y_train = y_train[:,1]
-    y_val = y_val[:,1]
-    
+    # epoch=2 generates best result
     history = model.fit(x_train, y_train, validation_data=(x_val, y_val),
-              epochs=6, batch_size=32)
-    score, acc = model.evaluate(x_val, y_val, batch_size=32)
+              epochs=3, batch_size=50)
+    score, acc = model.evaluate(x_val, y_val, batch_size=50)
     
 if plot:
     # summarize history for accuracy
@@ -276,4 +283,8 @@ if check_prediction:
     df_val['pred'] = val_predict.reshape((val_predict.shape[0],))
     false_pred = df_val.loc[((df_val['label'] < 0.5) & (df_val['pred'] > 0.5)) | 
                             ((df_val['label'] > 0.5) & (df_val['pred'] < 0.5))]
-
+    
+    writer = pd.ExcelWriter('compare_pred.xlsx')
+    df_val.to_excel(writer,'all')
+    false_pred.to_excel(writer, 'wrong')
+    writer.save()
