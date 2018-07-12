@@ -126,11 +126,18 @@ x_test_counts = count_vect.transform(df_val.text)
 ## padding and produce an array of size (#ofDocuments, total#ofWords)
 #import itertools
 #sequences_padded = np.array(list(itertools.izip_longest(*sequences_train, fillvalue=0))).T
+
 #    
 #enc = OneHotEncoder()
 ##AttributeError: 'OneHotEncoder' object has no attribute 'feature_indices_'?
 ## this worked on a smaller array, for example [[1, 2, 5], [2, 5, 9]]
 #text_corpus = enc.transform(sequences_padded).toarray()
+
+# found something new
+## this line will do the trick 
+## "count" mode trainsformation should be equivalent to CountVector.fit_transform? 
+## there is also a "tf-idf" mode
+#encoded_train = tokenizer_train.texts_to_matrix(texts_train, mode='tf-idf')
 
 # tf-idf: “Term Frequency times Inverse Document Frequency”.
 tfidf = TfidfTransformer()
