@@ -281,12 +281,14 @@ def objective(params):
     for i in range(3):  
 	# forgot to tune nb_filter...
 	# can we get different tuned filter_length for different channel? 
-        l_conv = Conv1D(nb_filter=100,filter_length=params['fsz'],activation='relu', kernel_regularizer=l2(params['conv_l2']))(embedded_sequences)
-        #l_dropout = Dropout(0.5)(l_norm)
+        l_conv = Conv1D(nb_filter=100,filter_length=params['fsz'], kernel_regularizer=l2(params['conv_l2']))(embedded_sequences)
+        l_norm = BatchNormalization()(l_conv)
+	l_actv = Activation('relu')(l_norm)
+	#l_dropout = Dropout(0.5)(l_norm)
         # (Zhang et al.) proposed that globalMaxPooling gives the best performance, however it gives dimension error if I do the change	
         #l_pool = GlobalMaxPooling1D()(l_norm)
 	# sequence of dropout, l_pool? 
-        l_dropout = Dropout(params['dropout1'])(l_conv)
+        l_dropout = Dropout(params['dropout1'])(l_actv)
         l_pool = MaxPooling1D(params['maxpool1'])(l_dropout)
         
         # reduce the three-dimensional output to two dimensional for concatenation
@@ -294,26 +296,17 @@ def objective(params):
         #convs.append(l_dropout)
         convs.append(l_flat)
     l_merge = concatenate(convs)
-    #l_conv1 = Conv1D(100, 5, activation='relu', kernel_regularizer=l2(0.005))(l_merge)
-    #l_dropout1 = Dropout(0.5)(l_conv1)
-    #l_pool1 = MaxPooling1D(5)(l_dropout1)
-#    l_cov2 = Conv1D(128, 5, activation='relu', kernel_regularizer=l2(0.005))(l_pool1)
-#    #l_dropout2 = Dropout(0.3)(l_cov2)
-#    l_pool2 = MaxPooling1D(30)(l_cov2)   
-    #l_flat1 = Flatten()(l_pool1)
-#    l_dense = Dense(128, activation='relu', W_regularizer=l2(0.005))(l_flat)
-#    pred = Lambda(lambda x: K.tf.nn.softmax(x))(l_dense)   
-#    l_dense2 = Dense(2, W_regularizer=l2(0.005))(pred)
+
     
     # why 128 filters? question not answered
     l_dense = Dense(params['dense_units'],  W_regularizer=l2(params['dense1_l2']))(l_merge)
     # reduce the effect of a change from a previous layer on the next layer(covariance shift), making the features more stable
     # slight regularization effect, add noise(mean, variance) to the hidden layer
     # what if adding another BatchNormalization to conv layer before activation? 
-    l_norm = BatchNormalization()(l_dense)
-    l_actv = Activation('relu')(l_norm)
+    l_norm1 = BatchNormalization()(l_dense)
+    l_actv1 = Activation('relu')(l_norm1)
     # this dropout layer reduce "loss" from test set, observed from plots(with 4000 samples in training)
-    l_dropout2 = Dropout(params['dropout2'])(l_actv)
+    l_dropout2 = Dropout(params['dropout2'])(l_actv1)
 
     pred = Dense(1, activation='sigmoid', W_regularizer=l2(params['pred_l2']))(l_dropout2)
     model = Model(inputs= sequence_input, outputs=pred)
@@ -328,7 +321,8 @@ def objective(params):
     # default batch_size=32, how do we determine this
     # shall we set it to the optimal batch_size with training? 
     score, acc = model.evaluate(x_val, y_val, batch_size=32)
-    
+    #Another question: I am minimizing' -val_acc' to attain the best set of parameters. 
+    #Does it make sense if we switch to minimize ‘val_loss’? 
     return {'loss': -acc, 'status': STATUS_OK, 'model': model }
 
 if construct_model:
@@ -367,6 +361,7 @@ if plot:
     plt.legend(['train', 'test'], loc='upper left')
     plt.show()
     #savefig('withoutDropout_loss')
+	
 if check_prediction:
     # find false positives and false negatives
     # predict on test set then save incorrect predictions, note test set contains 25,000 records
@@ -385,6 +380,49 @@ if check_prediction:
     df_val.to_excel(writer,'all')
     false_pred.to_excel(writer, 'wrong')
     writer.save()
+
+
+# model_suggested: 
+
+#     embedding_layer = Embedding(len(token_index) + 1,
+#                                 EMBEDDING_DIM,
+#                                 weights=[embedding_matrix],
+#                                 input_length=MAX_SEQUENCE_LENGTH,
+#                                 trainable=True)
+    
+#     sequence_input = Input(shape=(MAX_SEQUENCE_LENGTH,), dtype='int32')
+#     embedded_sequences = embedding_layer(sequence_input)
+    
+#     convs = []
+#     for fsz in [4, 5, 6]:    
+#     l_conv = Conv1D(nb_filter=64,filter_length=fsz, kernel_regularizer=l2(0.05))(embedded_sequences)
+#     l_norm = BatchNormalization()(l_conv)
+#     l_actv = Activation('relu')(l_norm)
+#     l_dropout = Dropout(0.5)(l_actv) # another suggestion 0.2
+#     l_pool = MaxPooling1D(5)(l_dropout)
+        
+#     # reduce the three-dimensional output to two dimensional for concatenation
+#     l_flat = Flatten()(l_pool)
+#     #convs.append(l_dropout)
+#     convs.append(l_flat)
+#     l_merge = concatenate(convs)
+#     # why 128 filters? question not answered
+#     l_dense = Dense(64, W_regularizer=l2(0.01))(l_merge)
+#     l_norm1 = BatchNormalization()(l_dense)
+#     l_actv1 = Activation('relu')(l_norm1)
+#     # this dropout layer reduce "loss" from test set, observed from plots
+#     l_dropout2 = Dropout(0.2)(l_actv1) # another suggestion 0.4
+#     pred = Dense(1, activation='sigmoid', W_regularizer=l2(0.01))(l_dropout2)
+#     model = Model(inputs= sequence_input, outputs=pred)
+
+#     # tutorial on optimizer: http://ruder.io/optimizing-gradient-descent/index.html#rmsprop
+#     model.compile(loss='binary_crossentropy',
+# 	      optimizer='adam',
+# 	      metrics=['accuracy'])
+
+#     history  = model.fit(x_train, y_train, validation_data=(x_val, y_val),
+# 	      epochs=10, batch_size=32)
+#     score, acc = model.evaluate(x_val, y_val, batch_size=32)
     
     
 
