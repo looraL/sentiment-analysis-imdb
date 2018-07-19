@@ -25,8 +25,8 @@ from keras.utils.np_utils import to_categorical
 
 from keras.layers import Embedding
 from keras.layers import Dense, Input, Flatten, Concatenate
-from keras.layers import Conv1D, MaxPooling1D, Embedding, Dropout, concatenate, Lambda, BatchNormalization
-from keras.layers import GlobalMaxPooling1D
+from keras.layers import Conv1D, MaxPooling1D, Embedding, Dropout, concatenate, Lambda, BatchNormalization, Activation
+#from keras.layers import GlobalMaxPooling1D
 from keras.models import Model, Sequential
 from keras import backend as K
 from keras.regularizers import l2
@@ -42,13 +42,13 @@ import string
 
 
 prepare_data = False
-load_exp_space = True
-construct_model = True
+load_exp_space = False
+construct_model = False
 train = False
 plot = False
 check_prediction = False
 
-MAX_SEQUENCE_LENGTH = 1000
+MAX_SEQUENCE_LENGTH = 1000 # only consider first 1000 words in each review
 MAX_NB_WORDS = 20000 # number of words in vocabulary
 EMBEDDING_DIM = 100
 VALIDATION_SPLIT = 0.2
@@ -57,23 +57,20 @@ def clean_doc(string):
     string = BeautifulSoup(string).get_text()
     string = re.sub(r"[^A-Za-z0-9(),!?\'\`]"," ", string)
     string = re.sub(r"\\", "", string)      
-    string = re.sub(r"\"", "", string)
-    
+    string = re.sub(r"\"", "", string)  
     return string.encode('utf-8')
 
 
 def clean_str(sentence, stop_words):
     """
-    string cleaning for dataset
-    All in lowercase
+    tokenize and clean
+    remove punctuations, numbers, stopwords, single-letter words
+    return list of words, all in lowercase
     """
     # Remove HTML syntax
     
     words = sentence.split()
-	# remove punctuation from each token
-    #table = words.maketrans('', '', string.punctuation)
-    #words= [w.translate(table) for w in words]
-    #words = re.sub(r"[^A-Za-z0-9(),!?\'\`]"," ", words)
+    # remove punctuation from each token
     # remove remaining tokens that are not alphabetic
     words = [word for word in words if word.isalpha()]
     # set to lowercase
@@ -91,15 +88,14 @@ def prepare_train_val(data, train_size=1000):
     """
     Randomly shuffle data, tokenize and do word-level one-hot embedding on texts.
     Split the data into training set and validation set.
-    Return x_train, y_train, texts_train, x_val, y_val, texts_val.
+    Return x_train, y_train, texts_train, x_val, y_val, texts_val, token_index.(save texts for later use on prediction check)
     """
     
     # clean string, format texts, labels into lists
     texts = []
     labels = []
+    # data is a pandas Dataframe, with columns[id, sentiment, review]
     for ind in range(data.review.shape[0]):
-        # Remove HTML syntax
-        #text = BeautifulSoup(data.review[ind])
         text = data.review[ind]
         # encountering UnicodeDecodeError: unexpected end of data
         # https://stackoverflow.com/questions/24004278/unicodedecodeerror-utf8-codec-cant-decode-byte-0xc3-in-position-34-unexpect
@@ -112,6 +108,7 @@ def prepare_train_val(data, train_size=1000):
     pack_texts_labels = list(zip(texts, labels))
     random.shuffle(pack_texts_labels)
     texts, labels = zip(*pack_texts_labels)
+    # downsample
     texts = texts[:train_size]
     labels = labels[:train_size]
     
@@ -136,20 +133,21 @@ def prepare_train_val(data, train_size=1000):
     # output np array(# of review, length of review), with word index as value
     # build an index of all tokens in the data.
      
-    # Question: only include most common # of words? 
+    # Question: only to include most common # of words? 
     # filter out stop_words
     # token_index equivalent to word_index in the commented keras one-hot embedding block
     stop_words = set(stopwords.words('english'))
     token_index = {}
     for review in texts:
-        # strip punctuation and special characters from the review sentences.
-        # then tokenize the reviews via the `split` method.
+	# apply clean_str()
+        # strip punctuation and special characters from the review sentences. remove stopwords, single-letter words
+        # get tokenized words list.
         review_cleaned = clean_str(review, stop_words)
         for word in review_cleaned:
             if word not in token_index:
                 # Assign a unique index to each unique word
                 token_index[word] = len(token_index) + 1
-                # Note that 0 is not attributed to anything.
+                # Note that 0 is not attributed to anything, it is used for padding.
       
     # vectorization
     # only consider the first MAX_SEQUENCE_LENGTH words in each review.      
@@ -180,6 +178,7 @@ def prepare_train_val(data, train_size=1000):
 
 if prepare_data:
     # Kaggle IMDB dataset: https://www.kaggle.com/c/word2vec-nlp-tutorial/data
+    # this dataset is too large, cannot be uploaded to Github repo
     # pd dataframe of size(25000, 3), columns: id, sentiment ,review(multiple sentences in one review)
     train_data = pd.read_csv( "data1/labeledTrainData.tsv", header=0, delimiter="\t", quoting=3 )
     #train_len = train.review.str.split().str.len()
@@ -192,11 +191,10 @@ if prepare_data:
     #50%        174.000000
     #75%        284.000000
     #max       2470.000000
-    #Name: review, dtype: float64
-    
+    #Name: review, dtype: float64    
     # set MAX_SEQUENCE_LENGTH = 1000
     
-    # option: prepare_train_val(train, train_size = 500)
+    # option to set train_size: prepare_train_val(train_data, train_size = 5000)
     x_train, y_train, texts_train, x_val, y_val, texts_val, token_index = prepare_train_val(train_data)
 
     # compute an index mapping words to Glove embeddings
@@ -217,21 +215,27 @@ if prepare_data:
         embedding_vector = embeddings_index.get(word)
         if embedding_vector is not None:
             # words not found in embedding index will be all-zeros.
+	    # alternatively, set random values to unknown words (Zhang et. al)
             embedding_matrix[i] = embedding_vector
             
+    # easier to use a single value for label representation
+    # 1. training process 2. concatenate with text and predictions later on 
     # originally in train section, this should only be changed once in preparation
     y_train = y_train[:,1]
     y_val = y_val[:,1]
     
+# tune hyperparameters with hyperopt(hyperas has more restrictions on input data)
+# guide: https://conference.scipy.org/proceedings/scipy2013/pdfs/bergstra_hyperopt.pdf
     
 if load_exp_space:
     #This is the parameter space to explore with hyperopt
 
-    #Simply offers several discrete choices for numnber of hidden units and drop out rates for
-    #a 2 or 3 layer MLP and also batch size
-    
+    #offers several discrete choices for numnber of hidden units and drop out rates for and also batch size
+	
     #This can be expanded over other parameters and to sample from a distribution instead of a discrete choice
     #for # of units etc.
+	
+    # also provides layer-level experiments 
         
     space = {        
         'fsz': hp.choice('fsz', [3, 4, 5, 6, 7]),
@@ -242,6 +246,8 @@ if load_exp_space:
                      
         'dropout1': hp.uniform('dropout1', 0, 1),        
         'dropout2': hp.uniform('dropout2', 0, 1),
+	    
+	'maxpool1': hp.choice('maxpool1', [2, 5, 10]),
         
         'dense_units': hp.choice('dense_units', [50, 100, 300]),
         
@@ -250,9 +256,7 @@ if load_exp_space:
         'optimizer': hp.choice('optimizer', ['rmsprop','adam'])
         }
 
-
-  
-#if construct_model:      
+    
 def objective(params):
     # load embedding matrix to an embedding layer
     # outputs a 3D tensor of shape (samples, sequence_length, embedding_dim)
@@ -270,18 +274,21 @@ def objective(params):
     # filter_size[7, 7, 7, 7] gives val_acc = 77.0%, dense 400 units, dropout = 0.5
     # filter_size[3, 4, 5] gives val_acc = 74.8%
     # filter_size[7, 7, 7] gives val_acc = 75.7%
-    # [7, 7, 7, 7] is chosen based on (Zhang et al. 2016) Section 4.3
-    # they suggested increasing the # of filters produces better result
+    # [7, 7, 7, 7] is chosen based on (Zhang et al. 2016) Section 4.3, they performed experiements with the polarity dataset, where each 
+    # sample contains one sentence
+    # try with larger filter size? since each of our sample review contains several sentences 
+    # they suggested that increasing # of filters will generate better result
     convs = []
-    for i in range(3):    
+    for i in range(3):  
+	# forgot to tune nb_filter...
+	# can we get different tuned filter_length for different channel? 
         l_conv = Conv1D(nb_filter=100,filter_length=params['fsz'],activation='relu', kernel_regularizer=l2(params['conv_l2']))(embedded_sequences)
-        l_norm = BatchNormalization()(l_conv)
         #l_dropout = Dropout(0.5)(l_norm)
-        # (Zhang et al.) proposed that globalMaxPooling gives the best performance, however it gives dimension error if I do the change
-        # question on dimension[?,50,1,100], why 50 not 56
+        # (Zhang et al.) proposed that globalMaxPooling gives the best performance, however it gives dimension error if I do the change	
         #l_pool = GlobalMaxPooling1D()(l_norm)
-        l_dropout = Dropout(params['dropout1'])(l_norm)
-        l_pool = MaxPooling1D(2)(l_dropout)
+	# sequence of dropout, l_pool? 
+        l_dropout = Dropout(params['dropout1'])(l_conv)
+        l_pool = MaxPooling1D(params['maxpool1'])(l_dropout)
         
         # reduce the three-dimensional output to two dimensional for concatenation
         l_flat = Flatten()(l_pool)
@@ -300,45 +307,48 @@ def objective(params):
 #    l_dense2 = Dense(2, W_regularizer=l2(0.005))(pred)
     
     # why 128 filters? question not answered
-    l_dense = Dense(params['dense_units'], activation='relu', W_regularizer=l2(params['dense1_l2']))(l_merge)
-    # this dropout layer reduce "loss" from test set, observed from plots
-    l_dropout2 = Dropout(params['dropout2'])(l_dense)
-    #    pred = Lambda(lambda x: K.tf.nn.softmax(x))(l_dense)   
-    #    l_dense2 = Dense(2, W_regularizer=l2(0.005))(pred)
+    l_dense = Dense(params['dense_units'],  W_regularizer=l2(params['dense1_l2']))(l_merge)
+    # reduce the effect of a change from a previous layer on the next layer(covariance shift), making the features more stable
+    # slight regularization effect, add noise(mean, variance) to the hidden layer
+    # what if adding another BatchNormalization to conv layer before activation? 
+    l_norm = BatchNormalization()(l_dense)
+    l_actv = Activation('relu')(l_norm)
+    # this dropout layer reduce "loss" from test set, observed from plots(with 4000 samples in training)
+    l_dropout2 = Dropout(params['dropout2'])(l_actv)
+
     pred = Dense(1, activation='sigmoid', W_regularizer=l2(params['pred_l2']))(l_dropout2)
     model = Model(inputs= sequence_input, outputs=pred)
-    #l_dense2 = Dense(1, activation = 'softmax')(drop)
-    # tf, keras version issue 
-#    model = Sequential()    
-#    model.add(model1)
-#    model.add(Lambda(lambda x: K.tf.nn.softmax(x)))
-#    model.add(Dense(2))
     
     # tutorial on optimizer: http://ruder.io/optimizing-gradient-descent/index.html#rmsprop
     model.compile(loss='binary_crossentropy',
               optimizer=params['optimizer'],
               metrics=['accuracy'])
     
-#if train:
-    # train model, batch_size is samples before gradient update, epoch is iterations over whole training set, split is
-    #   percentage of training data to be used for testing rather than training
-    #history = model.fit(X_train, y_train, validation_split=0.2, epochs=3, batch_size=50)
-    
-    # epoch=2 generates best result
     model.fit(x_train, y_train, validation_data=(x_val, y_val),
               epochs=20, batch_size=params['batch_size'])
+    # default batch_size=32, how do we determine this
+    # shall we set it to the optimal batch_size with training? 
     score, acc = model.evaluate(x_val, y_val, batch_size=32)
     
     return {'loss': -acc, 'status': STATUS_OK, 'model': model }
 
 if construct_model:
+    # to apply hyperopt, we need to specify:
+    # 1. the objective function to minimize
+    # 2. the space over which to search
+    # 3. a trials database [optional]
+    # 4.  the search algorithm to use [optional] (Bergstra et al.2013)
     trials = Trials()
+    # func = objective(), minimize -acc
+    # input parameters on trial: space{}
+    # pass in a Trials() object so that we can retain all the assessed points during the search besides the 'best'one, access by Trials' attributes
     best = fmin(objective, space, algo=tpe.suggest, trials=trials, max_evals=20)
     print (best)
     print (trials.best_trial)
     
     
 if plot:
+   # set 'history' with the best set of parameters
     # summarize history for accuracy
 #    print(history.summary())
     plt.plot(history.history['acc'])
