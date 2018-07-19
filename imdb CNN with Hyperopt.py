@@ -30,7 +30,6 @@ from keras.layers import Conv1D, MaxPooling1D, Embedding, Dropout, concatenate, 
 from keras.models import Model, Sequential
 from keras import backend as K
 from keras.regularizers import l2
-from keras.constraints import max_norm
 
 import matplotlib.pyplot as plt
 
