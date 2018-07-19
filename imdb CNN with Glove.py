@@ -202,7 +202,7 @@ if prepare_data:
     # compute an index mapping words to Glove embeddings
     #GLOVE_DIR = "../Glove"
     embeddings_index = {}
-    # (Zhang et al.) suggested 300d gives best performance
+  
     f = open('Glove/glove.6B.100d.txt')
     for line in f:
         values = line.split()
@@ -235,7 +235,9 @@ if construct_model:
     sequence_input = Input(shape=(MAX_SEQUENCE_LENGTH,), dtype='int32')
     embedded_sequences = embedding_layer(sequence_input)
     
-    # trained on 800 reviews, validated on 200 reviews
+    # trained with 4000 reviews, validated with 1000 reviews
+    # filter_size[3, 5, 7] gives val_acc = 83%
+    # trained with 800 reviews, validated with 200 reviews
     # dense layer immediate after concatenated convolutional layers
     # filter_size[7, 7, 7, 7] gives val_acc = 77.0%, dense 400 units, dropout = 0.5
     # filter_size[3, 4, 5] gives val_acc = 74.8%
@@ -277,7 +279,7 @@ if construct_model:
     #    pred = Lambda(lambda x: K.tf.nn.softmax(x))(l_dense)   
     #    l_dense2 = Dense(2, W_regularizer=l2(0.005))(pred)
     pred = Dense(1, activation='sigmoid', W_regularizer=l2(0.005))(l_dropout2)
-    model = Model(inputs=[sequence_input, sequence_input, sequence_input], outputs=pred)
+    model = Model(inputs=sequence_input, outputs=pred)
     #l_dense2 = Dense(1, activation = 'softmax')(drop)
     # tf, keras version issue 
 #    model = Sequential()    
@@ -293,9 +295,7 @@ if construct_model:
 if train:
     # train model, batch_size is samples before gradient update, epoch is iterations over whole training set, split is
     #   percentage of training data to be used for testing rather than training
-    #history = model.fit(X_train, y_train, validation_split=0.2, epochs=3, batch_size=50)
     
-    # epoch=2 generates best result
     history = model.fit(x_train, y_train, validation_data=(x_val, y_val),
               epochs=5, batch_size=32)
     score, acc = model.evaluate(x_val, y_val, batch_size=32)
@@ -327,6 +327,9 @@ if check_prediction:
     val_predict = model.predict(x_val)
     compare_val = pd.DataFrame({'y_val':y_val, 
                                 'pred_val':val_predict.reshape((val_predict.shape[0],))})
+    df_text_val = pd.Series(texts_val, name='text')
+    df_label_val = pd.Series(y_val, name='label')
+    df_val = pd.concat([df_text_val, df_label_val], axis=1)
     df_val['pred'] = val_predict.reshape((val_predict.shape[0],))
     false_pred = df_val.loc[((df_val['label'] < 0.5) & (df_val['pred'] > 0.5)) | 
                             ((df_val['label'] > 0.5) & (df_val['pred'] < 0.5))]
@@ -337,7 +340,5 @@ if check_prediction:
     writer.save()
     
     
-import IPython.nbformat.current as nbf
-nb = nbf.read(open('CNN with Glove.py', 'r'), 'py')
-nbf.write(nb, open('CNN with Glove.ipynb', 'w'), 'ipynb')
+
 
